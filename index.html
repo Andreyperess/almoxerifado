@@ -75,8 +75,10 @@ function tab(n){[1,2,3].forEach(i=>{$('v'+i).classList.toggle('hide',i!=n);$('t'
 async function startCam(){
   if(cam)return;
   try{
-    cam=new Html5Qrcode('reader');
-    await cam.start({facingMode:'environment'},{fps:10,qrbox:{width:250,height:250}},onScan,()=>{});
+    cam=new Html5Qrcode('reader',{experimentalFeatures:{useBarCodeDetectorIfSupported:true},verbose:false});
+    await cam.start({facingMode:'environment'},{fps:15,
+      qrbox:(w,h)=>({width:Math.floor(w*0.9),height:Math.floor(Math.min(h*0.6,w*0.5))}),
+      videoConstraints:{facingMode:'environment',width:{ideal:1920},height:{ideal:1080}}},onScan,()=>{});
     $('camBtn').classList.add('hide');
   }catch(e){cam=null;alert('Não foi possível abrir a câmera. Verifique a permissão e se o site está em HTTPS.')}
 }
