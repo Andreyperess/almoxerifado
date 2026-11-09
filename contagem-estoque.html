@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contagem de Estoque</title>
+<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<style>
+:root{--bg:#f3f6fa;--card:#fff;--tx:#17202a;--mut:#5d6b7a;--pri:#0b5cab;--ok:#1e8e3e;--warn:#c77700;--bd:#d9e1ea}
+@media(prefers-color-scheme:dark){:root{--bg:#10161d;--card:#18212b;--tx:#e8eef5;--mut:#93a1b0;--pri:#4a9bf0;--bd:#2a3644}}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,Arial,sans-serif;background:var(--bg);color:var(--tx)}
+header{background:var(--pri);color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center}
+header h1{font-size:18px;margin:0}
+nav{display:flex;background:var(--card);border-bottom:1px solid var(--bd)}
+nav button{flex:1;padding:12px;border:0;background:none;color:var(--mut);font-size:15px;font-weight:600;border-bottom:3px solid transparent}
+nav button.on{color:var(--pri);border-color:var(--pri)}
+main{padding:12px;max-width:720px;margin:auto}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:12px}
+#reader{width:100%;border-radius:10px;overflow:hidden;background:#000;min-height:200px}
+button.b{padding:14px;border:0;border-radius:10px;font-size:16px;font-weight:700;color:#fff;background:var(--pri);width:100%}
+button.b.ok{background:var(--ok)}button.b.warn{background:var(--warn)}button.b.gr{background:var(--mut)}
+.row{display:flex;gap:8px;margin-top:8px}.row>*{flex:1}
+input{width:100%;padding:12px;font-size:16px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx)}
+label{font-size:13px;color:var(--mut);display:block;margin:10px 0 4px}
+.hide{display:none}
+.item{display:flex;justify-content:space-between;gap:8px;padding:10px 0;border-bottom:1px solid var(--bd)}
+.tag{font-size:12px;font-weight:700;padding:2px 8px;border-radius:99px;color:#fff}
+.tag.e{background:var(--pri)}.tag.d{background:var(--warn)}
+table{width:100%;border-collapse:collapse;font-size:14px}th,td{border:1px solid var(--bd);padding:6px;text-align:left}th{background:var(--bg)}
+.wrap{overflow-x:auto}
+@media print{header,nav,.noprint{display:none!important}body{background:#fff;color:#000}.card{border:0}}
+</style>
+</head>
+<body>
+<header><h1>📦 Contagem de Estoque</h1><span id="cnt">0 itens</span></header>
+<nav class="noprint"><button id="t1" class="on" onclick="tab(1)">Ler</button><button id="t2" onclick="tab(2)">Lista</button><button id="t3" onclick="tab(3)">Relatório</button></nav>
+<main>
+<section id="v1">
+  <div class="card" id="scanCard">
+    <div id="reader"></div>
+    <div class="row noprint"><button class="b" id="camBtn" onclick="startCam()">Ligar câmera</button><button class="b gr" onclick="manual()">Digitar código</button></div>
+    <p style="color:var(--mut);font-size:13px;margin:8px 0 0">Aponte para o código (QR ou barras) da plaquinha.</p>
+  </div>
+  <div class="card hide" id="step">
+    <label>Código</label><input id="code">
+    <label>Nome da peça</label><input id="name" placeholder="Nome na plaquinha">
+    <div class="row"><button class="b gr" id="ocrBtn" onclick="ocr()">📷 Ler nome da plaquinha</button></div>
+    <div id="q">
+      <p style="font-weight:700;margin:16px 0 4px">É estoque ou aplicação direta?</p>
+      <div class="row"><button class="b" onclick="choose('E')">Estoque</button><button class="b warn" onclick="choose('D')">Aplicação direta</button></div>
+    </div>
+    <div id="qty" class="hide">
+      <label>Quantidade em estoque físico</label><input id="qtd" type="number" inputmode="decimal" min="0">
+      <div class="row"><button class="b gr" onclick="back()">Voltar</button><button class="b ok" onclick="save('E')">Salvar</button></div>
+    </div>
+    <button class="b gr" style="margin-top:8px" onclick="cancel()">Cancelar</button>
+  </div>
+</section>
+<section id="v2" class="hide"><div class="card" id="list"></div></section>
+<section id="v3" class="hide">
+  <div class="card" id="rep"></div>
+  <div class="row noprint"><button class="b" onclick="print()">Imprimir / PDF</button><button class="b ok" onclick="csv()">Baixar CSV</button></div>
+  <div class="row noprint"><button class="b gr" onclick="clearAll()">Limpar contagem</button></div>
+</section>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+let data=[],cam=null,paused=false,editIdx=-1;
+try{data=JSON.parse(localStorage.getItem('contagem')||'[]')}catch(e){}
+const persist=()=>{try{localStorage.setItem('contagem',JSON.stringify(data))}catch(e){}$('cnt').textContent=data.length+' itens'};
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function tab(n){[1,2,3].forEach(i=>{$('v'+i).classList.toggle('hide',i!=n);$('t'+i).classList.toggle('on',i==n)});if(n==2)renderList();if(n==3)renderRep()}
+async function startCam(){
+  if(cam)return;
+  try{
+    cam=new Html5Qrcode('reader');
+    await cam.start({facingMode:'environment'},{fps:10,qrbox:{width:250,height:250}},onScan,()=>{});
+    $('camBtn').classList.add('hide');
+  }catch(e){cam=null;alert('Não foi possível abrir a câmera. Verifique a permissão e se o site está em HTTPS.')}
+}
+function onScan(text){
+  if(paused)return;paused=true;
+  if(navigator.vibrate)navigator.vibrate(100);
+  let c=text.trim(),n='';
+  const parts=c.split(/[\n;|]/).map(s=>s.trim()).filter(Boolean);
+  if(parts.length>1){c=parts[0];n=parts.slice(1).join(' ')}
+  openStep(c,n);
+}
+function manual(){paused=true;openStep('','')}
+function openStep(c,n){
+  const ex=data.findIndex(d=>d.code===c);editIdx=ex;
+  $('code').value=c;$('name').value=n||(ex>=0?data[ex].name:'');
+  $('step').classList.remove('hide');$('q').classList.remove('hide');$('qty').classList.add('hide');
+  if(ex>=0)alert('Este código já está na lista. Salvar vai substituir o registro anterior.');
+  $('step').scrollIntoView({behavior:'smooth'});
+  if(!$('name').value)$('name').focus();
+}
+function choose(t){
+  if(!$('code').value.trim()){alert('Informe o código.');return}
+  if(t==='D')save('D');else{$('q').classList.add('hide');$('qty').classList.remove('hide');$('qtd').focus()}
+}
+function back(){$('q').classList.remove('hide');$('qty').classList.add('hide')}
+function save(t){
+  const code=$('code').value.trim(),name=$('name').value.trim();
+  let qtd='';
+  if(t==='E'){qtd=$('qtd').value;if(qtd===''){alert('Informe a quantidade.');return}}
+  const rec={code,name,tipo:t,qtd,hora:new Date().toLocaleString('pt-BR')};
+  const i=data.findIndex(d=>d.code===code);
+  if(i>=0)data[i]=rec;else data.push(rec);
+  persist();cancel();
+}
+function cancel(){$('step').classList.add('hide');$('qtd').value='';paused=false}
+async function ocr(){
+  const v=document.querySelector('#reader video');
+  if(!v){alert('Ligue a câmera primeiro.');return}
+  const b=$('ocrBtn');b.textContent='Lendo...';b.disabled=true;
+  try{
+    const cv=document.createElement('canvas');cv.width=v.videoWidth;cv.height=v.videoHeight;
+    cv.getContext('2d').drawImage(v,0,0);
+    const r=await Tesseract.recognize(cv,'por');
+    const lines=r.data.text.split('\n').map(s=>s.trim()).filter(s=>s.length>2);
+    $('name').value=lines.join(' ').slice(0,120);
+  }catch(e){alert('Não consegui ler o texto. Digite o nome manualmente.')}
+  b.textContent='📷 Ler nome da plaquinha';b.disabled=false;
+}
+function renderList(){
+  $('list').innerHTML=data.length?[...data].reverse().map(d=>{const i=data.indexOf(d);return `<div class="item"><div><b>${esc(d.code)}</b><br>${esc(d.name)||'<i>sem nome</i>'}<br><span class="tag ${d.tipo=='E'?'e':'d'}">${d.tipo=='E'?'Estoque: '+esc(d.qtd):'Aplicação direta'}</span></div><button onclick="del(${i})" style="border:0;background:none;font-size:20px">🗑️</button></div>`}).join(''):'Nenhum item lido ainda.';
+}
+function del(i){if(confirm('Remover este item?')){data.splice(i,1);persist();renderList()}}
+function renderRep(){
+  const e=data.filter(d=>d.tipo=='E'),d=data.filter(d=>d.tipo=='D');
+  $('rep').innerHTML=`<h2 style="margin-top:0">Relatório de contagem de estoque</h2><p>Data: ${new Date().toLocaleString('pt-BR')}<br>Total de itens: <b>${data.length}</b> — Estoque: <b>${e.length}</b> — Aplicação direta: <b>${d.length}</b></p><div class="wrap"><table><tr><th>#</th><th>Código</th><th>Nome</th><th>Tipo</th><th>Qtd. física</th><th>Hora</th></tr>${data.map((x,i)=>`<tr><td>${i+1}</td><td>${esc(x.code)}</td><td>${esc(x.name)}</td><td>${x.tipo=='E'?'Estoque':'Aplicação direta'}</td><td>${x.tipo=='E'?esc(x.qtd):'-'}</td><td>${esc(x.hora)}</td></tr>`).join('')}</table></div>`;
+}
+function csv(){
+  const q=s=>'"'+String(s).replace(/"/g,'""')+'"';
+  const t='\ufeff'+['Código;Nome;Tipo;Quantidade;Hora',...data.map(x=>[q(x.code),q(x.name),x.tipo=='E'?'Estoque':'Aplicação direta',x.tipo=='E'?x.qtd:'',q(x.hora)].join(';'))].join('\n');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'text/csv'}));a.download='contagem-estoque.csv';a.click();
+}
+function clearAll(){if(confirm('Apagar TODA a contagem? Esta ação não pode ser desfeita.')){data=[];persist();renderRep()}}
+persist();
+</script>
+</body>
+</html>
