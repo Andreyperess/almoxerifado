@@ -46,7 +46,8 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{border:1px solid 
   <div class="card hide" id="step">
     <label>Código</label><input id="code" oninput="saveDraft()">
     <label>Nome da peça</label><input id="name" placeholder="Nome na plaquinha" oninput="saveDraft()">
-    <div class="row"><button class="b gr" id="ocrBtn" onclick="ocr()">📷 Ler nome da plaquinha</button></div>
+    <label>Referência (faixa preta da plaquinha)</label><input id="ref" oninput="saveDraft()">
+    <div class="row"><button class="b gr" id="ocrBtn" onclick="ocr()">📷 Ler texto da plaquinha</button></div>
     <div id="q">
       <p style="font-weight:700;margin:16px 0 4px">É estoque ou aplicação direta?</p>
       <div class="row"><button class="b" onclick="choose('E')">Estoque</button><button class="b warn" onclick="choose('D')">Aplicação direta</button></div>
@@ -89,12 +90,12 @@ function onScan(text){
   let c=text.trim(),n='';
   const parts=c.split(/[\n;|]/).map(s=>s.trim()).filter(Boolean);
   if(parts.length>1){c=parts[0];n=parts.slice(1).join(' ')}
-  openStep(c,n);
+  const fr=grab();openStep(c,n);if(fr)runOcr(fr,false);
 }
 function manual(){paused=true;openStep('','')}
 function openStep(c,n){
   const ex=data.findIndex(d=>d.code===c);editIdx=ex;
-  $('code').value=c;$('name').value=n||(ex>=0?data[ex].name:'');
+  $('code').value=c;$('name').value=n||(ex>=0?data[ex].name:'');$('ref').value=ex>=0?(data[ex].ref||''):'';
   $('step').classList.remove('hide');$('q').classList.remove('hide');$('qty').classList.add('hide');
   if(ex>=0)alert('Este código já está na lista. Salvar vai substituir o registro anterior.');
   saveDraft();
@@ -110,42 +111,65 @@ function save(t){
   const code=$('code').value.trim(),name=$('name').value.trim();
   let qtd='';
   if(t==='E'){qtd=$('qtd').value;if(qtd===''){alert('Informe a quantidade.');return}}
-  const rec={code,name,tipo:t,qtd,hora:new Date().toLocaleString('pt-BR')};
+  const rec={code,name,ref:$('ref').value.trim(),tipo:t,qtd,hora:new Date().toLocaleString('pt-BR')};
   const i=data.findIndex(d=>d.code===code);
   if(i>=0)data[i]=rec;else data.push(rec);
   persist();cancel();
 }
 function cancel(){$('step').classList.add('hide');$('qtd').value='';paused=false;try{localStorage.removeItem('rascunho')}catch(e){}}
-function saveDraft(){try{localStorage.setItem('rascunho',JSON.stringify({c:$('code').value,n:$('name').value}))}catch(e){}}
-function restoreDraft(){try{const d=JSON.parse(localStorage.getItem('rascunho')||'null');if(d&&(d.c||d.n)){paused=true;$('code').value=d.c;$('name').value=d.n;$('step').classList.remove('hide')}}catch(e){}}
+function saveDraft(){try{localStorage.setItem('rascunho',JSON.stringify({c:$('code').value,n:$('name').value,r:$('ref').value}))}catch(e){}}
+function restoreDraft(){try{const d=JSON.parse(localStorage.getItem('rascunho')||'null');if(d&&(d.c||d.n)){paused=true;$('code').value=d.c;$('name').value=d.n;$('ref').value=d.r||'';$('step').classList.remove('hide')}}catch(e){}}
 function renderRecent(){
   const r=[...data].reverse().slice(0,5);
   $('recent').innerHTML=`<b>✅ Salvos: ${data.length}</b>`+(r.length?r.map(d=>`<div class="item"><div><b>${esc(d.code)}</b> ${esc(d.name)}<br><span class="tag ${d.tipo=='E'?'e':'d'}">${d.tipo=='E'?'Estoque: '+esc(d.qtd):'Aplicação direta'}</span></div></div>`).join('')+(data.length>5?'<p style="color:var(--mut);font-size:13px">Veja todos na aba Lista.</p>':''):'<p style="color:var(--mut);font-size:13px;margin:6px 0 0">Nenhum item salvo ainda.</p>');
 }
-async function ocr(){
+function grab(){
   const v=document.querySelector('#reader video');
-  if(!v){alert('Ligue a câmera primeiro.');return}
-  const b=$('ocrBtn');b.textContent='Lendo...';b.disabled=true;
+  if(!v||!v.videoWidth)return null;
+  const k=Math.min(1,1280/v.videoWidth),cv=document.createElement('canvas');
+  cv.width=Math.round(v.videoWidth*k);cv.height=Math.round(v.videoHeight*k);
+  cv.getContext('2d').drawImage(v,0,0,cv.width,cv.height);return cv;
+}
+function ocr(){const f=grab();if(!f){alert('Ligue a câmera primeiro.');return}runOcr(f,true)}
+let wk=null;
+async function runOcr(cv,force){
+  const b=$('ocrBtn');b.textContent='Lendo texto...';b.disabled=true;
   try{
-    const cv=document.createElement('canvas');cv.width=v.videoWidth;cv.height=v.videoHeight;
-    cv.getContext('2d').drawImage(v,0,0);
-    const r=await Tesseract.recognize(cv,'por');
-    const lines=r.data.text.split('\n').map(s=>s.trim()).filter(s=>s.length>2);
-    $('name').value=lines.join(' ').slice(0,120);
-  }catch(e){alert('Não consegui ler o texto. Digite o nome manualmente.')}
-  b.textContent='📷 Ler nome da plaquinha';b.disabled=false;
+    if(!wk)wk=await Tesseract.createWorker('por');
+    const t1=(await wk.recognize(cv)).data.text;
+    const iv=document.createElement('canvas');iv.width=cv.width;iv.height=cv.height;
+    const x=iv.getContext('2d');x.drawImage(cv,0,0);
+    const im=x.getImageData(0,0,iv.width,iv.height),dd=im.data;
+    for(let i=0;i<dd.length;i+=4){const g=255-(dd[i]*.3+dd[i+1]*.59+dd[i+2]*.11);dd[i]=dd[i+1]=dd[i+2]=g}
+    x.putImageData(im,0,0);
+    const t2=(await wk.recognize(iv)).data.text;
+    const re=/([A-Za-zÀ-ú]{2,})\s*[-–—_~]\s*(\d{5,})\s*[-–—_~]\s*(\d{1,4})/;
+    let ref='',cod='';
+    for(const l of (t1+'\n'+t2).split('\n')){const m=l.trim().match(re);if(m){ref=m[1]+' - '+m[2]+' - '+m[3];cod=m[2];break}}
+    let name='',best=0;
+    for(const l of t1.split('\n').map(s=>s.trim())){
+      const nl=(l.match(/[A-Za-zÀ-ú]/g)||[]).length,nn=l.replace(/\s/g,'').length,up=(l.match(/[A-ZÀ-Ú]/g)||[]).length;
+      if(nl>=5&&nl/nn>=.85&&up/nl>=.8&&!re.test(l)&&nl>best){best=nl;name=l}
+    }
+    if(ref&&(force||!$('ref').value))$('ref').value=ref;
+    if(cod&&!$('code').value.trim())$('code').value=cod;
+    if(name&&(force||!$('name').value.trim()))$('name').value=name;
+    saveDraft();
+    if(force&&!name&&!ref)alert('Não consegui ler o texto. Chegue mais perto, melhore a luz ou digite.');
+  }catch(e){if(force)alert('Erro ao ler o texto. Digite manualmente.')}
+  b.textContent='📷 Ler texto da plaquinha';b.disabled=false;
 }
 function renderList(){
-  $('list').innerHTML=data.length?[...data].reverse().map(d=>{const i=data.indexOf(d);return `<div class="item"><div><b>${esc(d.code)}</b><br>${esc(d.name)||'<i>sem nome</i>'}<br><span class="tag ${d.tipo=='E'?'e':'d'}">${d.tipo=='E'?'Estoque: '+esc(d.qtd):'Aplicação direta'}</span></div><button onclick="del(${i})" style="border:0;background:none;font-size:20px">🗑️</button></div>`}).join(''):'Nenhum item lido ainda.';
+  $('list').innerHTML=data.length?[...data].reverse().map(d=>{const i=data.indexOf(d);return `<div class="item"><div><b>${esc(d.code)}</b><br>${esc(d.name)||'<i>sem nome</i>'}<br>${d.ref?'<small>'+esc(d.ref)+'</small><br>':''}<span class="tag ${d.tipo=='E'?'e':'d'}">${d.tipo=='E'?'Estoque: '+esc(d.qtd):'Aplicação direta'}</span></div><button onclick="del(${i})" style="border:0;background:none;font-size:20px">🗑️</button></div>`}).join(''):'Nenhum item lido ainda.';
 }
 function del(i){if(confirm('Remover este item?')){data.splice(i,1);persist();renderList()}}
 function renderRep(){
   const e=data.filter(d=>d.tipo=='E'),d=data.filter(d=>d.tipo=='D');
-  $('rep').innerHTML=`<h2 style="margin-top:0">Relatório de contagem de estoque</h2><p>Data: ${new Date().toLocaleString('pt-BR')}<br>Total de itens: <b>${data.length}</b> — Estoque: <b>${e.length}</b> — Aplicação direta: <b>${d.length}</b></p><div class="wrap"><table><tr><th>#</th><th>Código</th><th>Nome</th><th>Tipo</th><th>Qtd. física</th><th>Hora</th></tr>${data.map((x,i)=>`<tr><td>${i+1}</td><td>${esc(x.code)}</td><td>${esc(x.name)}</td><td>${x.tipo=='E'?'Estoque':'Aplicação direta'}</td><td>${x.tipo=='E'?esc(x.qtd):'-'}</td><td>${esc(x.hora)}</td></tr>`).join('')}</table></div>`;
+  $('rep').innerHTML=`<h2 style="margin-top:0">Relatório de contagem de estoque</h2><p>Data: ${new Date().toLocaleString('pt-BR')}<br>Total de itens: <b>${data.length}</b> — Estoque: <b>${e.length}</b> — Aplicação direta: <b>${d.length}</b></p><div class="wrap"><table><tr><th>#</th><th>Código</th><th>Nome</th><th>Referência</th><th>Tipo</th><th>Qtd. física</th><th>Hora</th></tr>${data.map((x,i)=>`<tr><td>${i+1}</td><td>${esc(x.code)}</td><td>${esc(x.name)}</td><td>${esc(x.ref||'')}</td><td>${x.tipo=='E'?'Estoque':'Aplicação direta'}</td><td>${x.tipo=='E'?esc(x.qtd):'-'}</td><td>${esc(x.hora)}</td></tr>`).join('')}</table></div>`;
 }
 function csv(){
   const q=s=>'"'+String(s).replace(/"/g,'""')+'"';
-  const t='\ufeff'+['Código;Nome;Tipo;Quantidade;Hora',...data.map(x=>[q(x.code),q(x.name),x.tipo=='E'?'Estoque':'Aplicação direta',x.tipo=='E'?x.qtd:'',q(x.hora)].join(';'))].join('\n');
+  const t='\ufeff'+['Código;Nome;Referência;Tipo;Quantidade;Hora',...data.map(x=>[q(x.code),q(x.name),q(x.ref||''),x.tipo=='E'?'Estoque':'Aplicação direta',x.tipo=='E'?x.qtd:'',q(x.hora)].join(';'))].join('\n');
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'text/csv'}));a.download='contagem-estoque.csv';a.click();
 }
 function clearAll(){if(confirm('Apagar TODA a contagem? Esta ação não pode ser desfeita.')){data=[];persist();renderRep()}}
