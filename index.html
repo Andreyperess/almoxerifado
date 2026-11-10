@@ -44,8 +44,8 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{border:1px solid 
     <p style="color:var(--mut);font-size:13px;margin:8px 0 0">Aponte para o código (QR ou barras) da plaquinha.</p>
   </div>
   <div class="card hide" id="step">
-    <label>Código</label><input id="code">
-    <label>Nome da peça</label><input id="name" placeholder="Nome na plaquinha">
+    <label>Código</label><input id="code" oninput="saveDraft()">
+    <label>Nome da peça</label><input id="name" placeholder="Nome na plaquinha" oninput="saveDraft()">
     <div class="row"><button class="b gr" id="ocrBtn" onclick="ocr()">📷 Ler nome da plaquinha</button></div>
     <div id="q">
       <p style="font-weight:700;margin:16px 0 4px">É estoque ou aplicação direta?</p>
@@ -57,6 +57,7 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{border:1px solid 
     </div>
     <button class="b gr" style="margin-top:8px" onclick="cancel()">Cancelar</button>
   </div>
+  <div class="card" id="recent"></div>
 </section>
 <section id="v2" class="hide"><div class="card" id="list"></div></section>
 <section id="v3" class="hide">
@@ -69,7 +70,7 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{border:1px solid 
 const $=id=>document.getElementById(id);
 let data=[],cam=null,paused=false,editIdx=-1;
 try{data=JSON.parse(localStorage.getItem('contagem')||'[]')}catch(e){}
-const persist=()=>{try{localStorage.setItem('contagem',JSON.stringify(data))}catch(e){}$('cnt').textContent=data.length+' itens'};
+const persist=()=>{try{localStorage.setItem('contagem',JSON.stringify(data))}catch(e){}$('cnt').textContent=data.length+' itens';renderRecent()};
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function tab(n){[1,2,3].forEach(i=>{$('v'+i).classList.toggle('hide',i!=n);$('t'+i).classList.toggle('on',i==n)});if(n==2)renderList();if(n==3)renderRep()}
 async function startCam(){
@@ -96,6 +97,7 @@ function openStep(c,n){
   $('code').value=c;$('name').value=n||(ex>=0?data[ex].name:'');
   $('step').classList.remove('hide');$('q').classList.remove('hide');$('qty').classList.add('hide');
   if(ex>=0)alert('Este código já está na lista. Salvar vai substituir o registro anterior.');
+  saveDraft();
   $('step').scrollIntoView({behavior:'smooth'});
   if(!$('name').value)$('name').focus();
 }
@@ -113,7 +115,13 @@ function save(t){
   if(i>=0)data[i]=rec;else data.push(rec);
   persist();cancel();
 }
-function cancel(){$('step').classList.add('hide');$('qtd').value='';paused=false}
+function cancel(){$('step').classList.add('hide');$('qtd').value='';paused=false;try{localStorage.removeItem('rascunho')}catch(e){}}
+function saveDraft(){try{localStorage.setItem('rascunho',JSON.stringify({c:$('code').value,n:$('name').value}))}catch(e){}}
+function restoreDraft(){try{const d=JSON.parse(localStorage.getItem('rascunho')||'null');if(d&&(d.c||d.n)){paused=true;$('code').value=d.c;$('name').value=d.n;$('step').classList.remove('hide')}}catch(e){}}
+function renderRecent(){
+  const r=[...data].reverse().slice(0,5);
+  $('recent').innerHTML=`<b>✅ Salvos: ${data.length}</b>`+(r.length?r.map(d=>`<div class="item"><div><b>${esc(d.code)}</b> ${esc(d.name)}<br><span class="tag ${d.tipo=='E'?'e':'d'}">${d.tipo=='E'?'Estoque: '+esc(d.qtd):'Aplicação direta'}</span></div></div>`).join('')+(data.length>5?'<p style="color:var(--mut);font-size:13px">Veja todos na aba Lista.</p>':''):'<p style="color:var(--mut);font-size:13px;margin:6px 0 0">Nenhum item salvo ainda.</p>');
+}
 async function ocr(){
   const v=document.querySelector('#reader video');
   if(!v){alert('Ligue a câmera primeiro.');return}
@@ -141,7 +149,8 @@ function csv(){
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'text/csv'}));a.download='contagem-estoque.csv';a.click();
 }
 function clearAll(){if(confirm('Apagar TODA a contagem? Esta ação não pode ser desfeita.')){data=[];persist();renderRep()}}
-persist();
+persist();restoreDraft();
+try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist()}catch(e){}
 </script>
 </body>
 </html>
