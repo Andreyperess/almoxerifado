@@ -40,11 +40,13 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{border:1px solid 
 <section id="v1">
   <div class="card" id="scanCard">
     <div id="reader"></div>
+    <div id="st" style="text-align:center;font-weight:700;color:var(--pri);min-height:22px;margin-top:6px"></div>
     <div class="row noprint"><button class="b" id="camBtn" onclick="startCam()">Ligar câmera</button><button class="b gr" onclick="manual()">Digitar código</button></div>
     <p style="color:var(--mut);font-size:13px;margin:8px 0 0">Aponte para o código (QR ou barras) da plaquinha.</p>
   </div>
   <div class="card hide" id="step">
     <label>Código</label><input id="code" oninput="saveDraft()">
+    <div id="warn" style="color:var(--warn);font-size:13px;font-weight:700;margin-top:4px"></div>
     <label>Nome da peça</label><input id="name" placeholder="Nome na plaquinha" oninput="saveDraft()">
     <label>Referência (faixa preta da plaquinha)</label><input id="ref" oninput="saveDraft()">
     <div class="row"><button class="b gr" id="ocrBtn" onclick="ocr()">📷 Ler texto da plaquinha</button></div>
@@ -84,8 +86,15 @@ async function startCam(){
     $('camBtn').classList.add('hide');
   }catch(e){cam=null;alert('Não foi possível abrir a câmera. Verifique a permissão e se o site está em HTTPS.')}
 }
+let seen='',hits=0,since=0,lastAt=0,cool=0;
 function onScan(text){
-  if(paused)return;paused=true;
+  if(paused||Date.now()<cool)return;
+  const tt=text.trim(),now=Date.now();
+  if(tt===seen&&now-lastAt<1500)hits++;else{seen=tt;hits=1;since=now}
+  lastAt=now;
+  $('st').textContent='Confirmando leitura...';
+  if(hits<4||now-since<900)return;
+  seen='';hits=0;$('st').textContent='';paused=true;
   if(navigator.vibrate)navigator.vibrate(100);
   let c=text.trim(),n='';
   const parts=c.split(/[\n;|]/).map(s=>s.trim()).filter(Boolean);
@@ -95,7 +104,7 @@ function onScan(text){
 function manual(){paused=true;openStep('','')}
 function openStep(c,n){
   const ex=data.findIndex(d=>d.code===c);editIdx=ex;
-  $('code').value=c;$('name').value=n||(ex>=0?data[ex].name:'');$('ref').value=ex>=0?(data[ex].ref||''):'';
+  $('code').value=c;$('name').value=n||(ex>=0?data[ex].name:'');$('ref').value=ex>=0?(data[ex].ref||''):'';$('warn').textContent='';
   $('step').classList.remove('hide');$('q').classList.remove('hide');$('qty').classList.add('hide');
   if(ex>=0)alert('Este código já está na lista. Salvar vai substituir o registro anterior.');
   saveDraft();
@@ -116,7 +125,7 @@ function save(t){
   if(i>=0)data[i]=rec;else data.push(rec);
   persist();cancel();
 }
-function cancel(){$('step').classList.add('hide');$('qtd').value='';paused=false;try{localStorage.removeItem('rascunho')}catch(e){}}
+function cancel(){$('step').classList.add('hide');$('qtd').value='';paused=false;cool=Date.now()+2500;try{localStorage.removeItem('rascunho')}catch(e){}}
 function saveDraft(){try{localStorage.setItem('rascunho',JSON.stringify({c:$('code').value,n:$('name').value,r:$('ref').value}))}catch(e){}}
 function restoreDraft(){try{const d=JSON.parse(localStorage.getItem('rascunho')||'null');if(d&&(d.c||d.n)){paused=true;$('code').value=d.c;$('name').value=d.n;$('ref').value=d.r||'';$('step').classList.remove('hide')}}catch(e){}}
 function renderRecent(){
@@ -154,6 +163,8 @@ async function runOcr(cv,force){
     if(ref&&(force||!$('ref').value))$('ref').value=ref;
     if(cod&&!$('code').value.trim())$('code').value=cod;
     if(name&&(force||!$('name').value.trim()))$('name').value=name;
+    const cc=$('code').value.trim();
+    $('warn').textContent=(cod&&cc&&cod!==cc)?'⚠️ A faixa preta indica '+cod+', mas o código lido foi '+cc+'. Confira.':'';
     saveDraft();
     if(force&&!name&&!ref)alert('Não consegui ler o texto. Chegue mais perto, melhore a luz ou digite.');
   }catch(e){if(force)alert('Erro ao ler o texto. Digite manualmente.')}
