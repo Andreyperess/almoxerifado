@@ -80,8 +80,9 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{border:1px solid 
 </div>
 <div id="mReq" class="hide"><main>
   <div class="card"><b>1. Coligada</b>
-    <div class="row" id="colBtns"><button class="opt" onclick="setCol('Amafil')">Amafil</button><button class="opt" onclick="setCol('Derimam')">Derimam</button><button class="opt" onclick="setCol('Jopllam')">Jopllam</button></div>
+    <div class="row" id="colBtns"><button class="opt" onclick="setCol('Amagil')">Amagil</button><button class="opt" onclick="setCol('Derimam')">Derimam</button><button class="opt" onclick="setCol('Jopllam')">Jopllam</button></div>
     <label>CNPJ</label><input id="rcnpj" inputmode="numeric" placeholder="Selecione a coligada" oninput="cnpjIn()">
+    <div id="rrz" style="font-size:13px;color:var(--mut);margin-top:4px"></div>
   </div>
   <div class="card"><b>2. Produtos</b>
     <div id="rreader" style="width:100%;border-radius:10px;overflow:hidden;background:#000;min-height:160px;margin-top:8px"></div>
@@ -99,6 +100,10 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{border:1px solid 
     <div class="row" id="trBtns"><button class="opt" onclick="setTr('Amafil')">Amafil</button><button class="opt" onclick="setTr('Lifama')">Lifama</button></div>
     <label>Placa</label><input id="rplaca" maxlength="8" placeholder="ABC1D23" oninput="placaIn(this)">
   </div>
+  <div class="card"><b>4. WhatsApp</b>
+    <label>Número do Faturamento (DDD + número)</label><input id="rwpp" inputmode="tel" placeholder="41 99999-9999" oninput="wppIn()">
+  </div>
+  <div class="row"><button class="b ok" onclick="sendWpp()">💬 Enviar no WhatsApp</button></div>
   <div class="row"><button class="b" onclick="pdfSave()">📄 Gerar PDF</button><button class="b ok" onclick="pdfShare()">📤 Compartilhar</button></div>
   <div class="row"><button class="b gr" onclick="newReq()">Nova requisição</button></div>
 </main></div>
@@ -230,13 +235,17 @@ async function mod(n){
   if(n==2){await stopInv();renderReq()}else await stopReq();
 }
 /* ===== Requisições para coligadas ===== */
-const RC={Amafil:'',Derimam:'',Jopllam:'05.119.521/0001-86'};
+const RC={Amagil:'12.082.881/0001-16',Derimam:'08.326.364/0001-78',Jopllam:'05.119.521/0001-86'};
+const RZ={Amagil:'Nhsilva Industria e Exportacao Ltda',Derimam:'Agroindustrial e Comercial Derimam Ltda',Jopllam:'Jopllam - Industria e Comercio de Alimentos Ltda'};
 let R={col:'',cnpj:'',transp:'',placa:'',items:[]},cnpjs={},rcam=null,rseen='',rhits=0,rsince=0,rlast=0,rcool=0,rpaused=false;
 try{R=Object.assign(R,JSON.parse(localStorage.getItem('requisicao')||'{}'));cnpjs=JSON.parse(localStorage.getItem('cnpjs')||'{}')}catch(e){}
+if(R.col==='Amafil')R.col='Amagil';
+if(cnpjs.Amafil){cnpjs.Amagil=cnpjs.Amagil||cnpjs.Amafil;delete cnpjs.Amafil}
+if(R.col&&RC[R.col])R.cnpj=RC[R.col];
 const saveR=()=>{try{localStorage.setItem('requisicao',JSON.stringify(R));localStorage.setItem('cnpjs',JSON.stringify(cnpjs))}catch(e){}};
 const brl=n=>n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const num=v=>parseFloat(String(v).trim().replace(/\./g,'').replace(',','.'));
-function setCol(c){R.col=c;R.cnpj=cnpjs[c]||RC[c]||'';saveR();renderReq()}
+function setCol(c){R.col=c;R.cnpj=RC[c]||cnpjs[c]||'';saveR();renderReq()}
 function setTr(t){R.transp=t;saveR();renderReq()}
 function cnpjIn(){R.cnpj=$('rcnpj').value;if(R.col)cnpjs[R.col]=R.cnpj;saveR()}
 function placaIn(el){el.value=el.value.toUpperCase();R.placa=el.value;saveR()}
@@ -279,7 +288,7 @@ function delItem(i){if(confirm('Remover este item?')){R.items.splice(i,1);saveR(
 function renderReq(){
   document.querySelectorAll('#colBtns .opt').forEach(b=>b.classList.toggle('sel',b.textContent===R.col));
   document.querySelectorAll('#trBtns .opt').forEach(b=>b.classList.toggle('sel',b.textContent===R.transp));
-  $('rcnpj').value=R.cnpj;$('rplaca').value=R.placa;
+  $('rcnpj').value=R.cnpj;$('rrz').textContent=RZ[R.col]||'';$('rwpp').value=wpp;$('rplaca').value=R.placa;
   const tot=R.items.reduce((a,x)=>a+x.q*x.v,0);
   $('ritems').innerHTML=R.items.length?R.items.map((x,i)=>`<div class="item"><div><b>${esc(x.code)}</b> ${esc(x.name)}<br><small>${x.q.toLocaleString('pt-BR')} ${esc(x.un)} × ${brl(x.v)} = <b>${brl(x.q*x.v)}</b></small></div><button onclick="delItem(${i})" style="border:0;background:none;font-size:20px">🗑️</button></div>`).join('')+`<p style="text-align:right;font-weight:700;margin:10px 0 0">Total: ${brl(tot)}</p>`:'<p style="color:var(--mut);font-size:13px;margin:0">Nenhum item adicionado.</p>';
 }
@@ -302,7 +311,7 @@ function mkPdf(){
   d.setFontSize(10);d.setFont('helvetica','normal');y+=6;
   d.text('Solicitação de nota fiscal de venda para coligada',M,y);
   y+=4;d.line(M,y,RE,y);y+=7;
-  [['Data/hora',new Date().toLocaleString('pt-BR')],['Coligada (destinatário)',R.col],['CNPJ',R.cnpj],['Transportadora',R.transp],['Placa',R.placa]].forEach(([k,v])=>{
+  [['Data/hora',new Date().toLocaleString('pt-BR')],['Coligada (destinatário)',R.col],...(RZ[R.col]?[['Razão social',RZ[R.col]]]:[]),['CNPJ',R.cnpj],['Transportadora',R.transp],['Placa',R.placa]].forEach(([k,v])=>{
     d.setFont('helvetica','bold');d.text(k+':',M,y);d.setFont('helvetica','normal');d.text(lat(v),M+48,y);y+=6;
   });
   y+=3;
@@ -326,6 +335,22 @@ function mkPdf(){
   for(let i=1;i<=np;i++){d.setPage(i);d.setFontSize(8);d.text('Página '+i+'/'+np,RE,290,{align:'right'})}
   return {d,name:`requisicao-${R.col.toLowerCase()}-${new Date().toISOString().slice(0,10)}.pdf`};
 }
+let wpp='44 3627-8061';try{const w=localStorage.getItem('wpp');if(w!==null)wpp=w}catch(e){}
+function wppIn(){wpp=$('rwpp').value;try{localStorage.setItem('wpp',wpp)}catch(e){}}
+function sendWpp(){
+  let n=$('rwpp').value.replace(/\D/g,'');
+  if(n.length===10||n.length===11)n='55'+n;
+  if(n.length<12||n.length>13){alert('Informe o número do WhatsApp com DDD (ex.: 41 99999-9999).');$('rwpp').focus();return}
+  const r=mkPdf();if(!r)return;
+  const tot=R.items.reduce((a,x)=>a+x.q*x.v,0);
+  const head='*REQUISIÇÃO PARA FATURAMENTO*\nColigada: '+R.col+(RZ[R.col]?'\nRazão social: '+RZ[R.col]:'')+'\nCNPJ: '+R.cnpj+'\nTransportadora: '+R.transp+'\nPlaca: '+R.placa+'\n';
+  const items=R.items.map((x,i)=>(i+1)+') '+x.code+' - '+x.name+' - '+x.q.toLocaleString('pt-BR')+' '+x.un+' x '+brl(x.v)+' = '+brl(x.q*x.v)).join('\n');
+  let msg=head+'\nItens:\n'+items+'\n\n*Total: '+brl(tot)+'*\nPDF em anexo.';
+  if(encodeURIComponent(msg).length>1800)msg=head+'\n'+R.items.length+' itens - *Total: '+brl(tot)+'*\nDetalhes no PDF em anexo.';
+  r.d.save(r.name);
+  const url='https://wa.me/'+n+'?text='+encodeURIComponent(msg);
+  if(!window.open(url,'_blank'))location.href=url;
+}
 function pdfSave(){const r=mkPdf();if(r)r.d.save(r.name)}
 function pdfShare(){
   const r=mkPdf();if(!r)return;
@@ -340,4 +365,3 @@ try{if(localStorage.getItem('modulo')==='2')mod(2)}catch(e){}
 </script>
 </body>
 </html>
-
