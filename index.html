@@ -31,6 +31,8 @@ label{font-size:13px;color:var(--mut);display:block;margin:10px 0 4px}
 .tag.e{background:var(--pri)}.tag.d{background:var(--warn)}
 table{width:100%;border-collapse:collapse;font-size:14px}th,td{border:1px solid var(--bd);padding:6px;text-align:left}th{background:var(--bg)}
 .wrap{overflow-x:auto}
+.kp{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}.kp div{background:var(--bg);border-radius:10px;padding:10px}.kp b{display:block;font-size:22px}.kp small{color:var(--mut);font-size:12px}
+nav button{padding:12px 2px!important;font-size:14px!important}
 #top{display:flex;background:var(--card);border-bottom:2px solid var(--bd)}
 #top button{flex:1;padding:14px 6px;border:0;background:none;color:var(--mut);font-size:16px;font-weight:700;border-bottom:4px solid transparent}
 #top button.on{color:var(--pri);border-color:var(--pri)}
@@ -43,7 +45,7 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{border:1px solid 
 <header><h1>📦 Almoxarifado</h1><span id="cnt">0 itens</span></header>
 <div id="top" class="noprint"><button id="m1" class="on" onclick="mod(1)">📋 Inventário</button><button id="m2" onclick="mod(2)">🚚 Requisições</button></div>
 <div id="mInv">
-<nav class="noprint"><button id="t1" class="on" onclick="tab(1)">Ler</button><button id="t2" onclick="tab(2)">Lista</button><button id="t3" onclick="tab(3)">Relatório</button></nav>
+<nav class="noprint"><button id="t1" class="on" onclick="tab(1)">Ler</button><button id="t2" onclick="tab(2)">Lista</button><button id="t3" onclick="tab(3)">Relatório</button><button id="t4" onclick="tab(4)">Gráficos</button></nav>
 <main>
 <section id="v1">
   <div class="card" id="scanCard">
@@ -74,8 +76,10 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{border:1px solid 
 <section id="v3" class="hide">
   <div class="card" id="rep"></div>
   <div class="row noprint"><button class="b" onclick="print()">Imprimir / PDF</button><button class="b ok" onclick="csv()">Baixar CSV</button></div>
-  <div class="row noprint"><button class="b gr" onclick="clearAll()">Limpar contagem</button></div>
+  <div class="row noprint"><button class="b gr" onclick="$('impf').click()">⬆️ Importar CSV</button><button class="b warn" onclick="clearAll()">🗑️ Limpar contagem</button></div>
+  <input type="file" id="impf" accept=".csv,text/csv,text/plain" class="hide" onchange="imp(this)">
 </section>
+<section id="v4" class="hide"><div class="card" id="graf"></div></section>
 </main>
 </div>
 <div id="mReq" class="hide"><main>
@@ -114,7 +118,7 @@ let data=[],cam=null,paused=false,editIdx=-1;
 try{data=JSON.parse(localStorage.getItem('contagem')||'[]')}catch(e){}
 const persist=()=>{try{localStorage.setItem('contagem',JSON.stringify(data))}catch(e){}$('cnt').textContent=data.length+' itens';renderRecent()};
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-function tab(n){[1,2,3].forEach(i=>{$('v'+i).classList.toggle('hide',i!=n);$('t'+i).classList.toggle('on',i==n)});if(n==2)renderList();if(n==3)renderRep()}
+function tab(n){[1,2,3,4].forEach(i=>{$('v'+i).classList.toggle('hide',i!=n);$('t'+i).classList.toggle('on',i==n)});if(n==2)renderList();if(n==3)renderRep();if(n==4)renderGraf()}
 async function startCam(){
   if(cam)return;
   try{
@@ -223,7 +227,7 @@ function csv(){
   const t='\ufeff'+['Código;Nome;Referência;Tipo;Quantidade;Unidade;Hora',...data.map(x=>[q(x.code),q(x.name),q(x.ref||''),x.tipo=='E'?'Estoque':'Aplicação direta',x.tipo=='E'?x.qtd:'',x.un||'',q(x.hora)].join(';'))].join('\n');
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'text/csv'}));a.download='contagem-estoque.csv';a.click();
 }
-function clearAll(){if(confirm('Apagar TODA a contagem? Esta ação não pode ser desfeita.')){data=[];persist();renderRep()}}
+function clearAll(){if(confirm('Apagar TODA a contagem deste celular? Baixe o CSV antes: depois você pode importá-lo de volta.')){data=[];persist();renderRep()}}
 
 async function stopInv(){if(cam){try{await cam.stop()}catch(e){}try{cam.clear()}catch(e){}cam=null;$('camBtn').classList.remove('hide')}}
 async function stopReq(){if(rcam){try{await rcam.stop()}catch(e){}try{rcam.clear()}catch(e){}rcam=null;$('rcamBtn').classList.remove('hide')}}
@@ -357,6 +361,82 @@ function pdfShare(){
   const f=new File([r.d.output('blob')],r.name,{type:'application/pdf'});
   if(navigator.canShare&&navigator.canShare({files:[f]}))navigator.share({files:[f],title:'Requisição '+R.col}).catch(()=>{});
   else r.d.save(r.name);
+}
+
+
+/* ===== Importar CSV ===== */
+function parseCSV(t){
+  t=t.replace(/^\ufeff/,'');
+  const l0=t.split('\n')[0],dl=l0.split(';').length>=l0.split(',').length?';':',';
+  const rows=[];let row=[],f='',q=false;
+  for(let i=0;i<t.length;i++){const c=t[i];
+    if(q){if(c=='"'){if(t[i+1]=='"'){f+='"';i++}else q=false}else f+=c}
+    else if(c=='"')q=true;
+    else if(c==dl){row.push(f);f=''}
+    else if(c=='\n'||c=='\r'){if(c=='\r'&&t[i+1]=='\n')i++;row.push(f);f='';if(row.some(v=>v.trim()))rows.push(row);row=[]}
+    else f+=c}
+  row.push(f);if(row.some(v=>v.trim()))rows.push(row);
+  return rows;
+}
+function imp(el){
+  const file=el.files[0];if(!file)return;
+  const rd=new FileReader();
+  rd.onload=()=>{
+    const rows=parseCSV(String(rd.result));
+    const norm=x=>String(x).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+    const h=(rows[0]||[]).map(norm),fi=re=>h.findIndex(x=>re.test(x));
+    const ic=fi(/^c.{1,2}digo$/),inm=fi(/^nome/),ir=fi(/^refer/),it=fi(/^tipo/),iq=fi(/^quantidade/),iu=fi(/^unidade/),ih=fi(/^hora/);
+    if(rows.length<2||ic<0){alert('Não reconheci o arquivo. Use um CSV exportado por este app.');el.value='';return}
+    const g=(r,i)=>i>=0?String(r[i]||'').trim():'';
+    const recs=rows.slice(1).map(r=>{
+      const code=g(r,ic);if(!code)return null;
+      const tipo=norm(g(r,it)).startsWith('estoque')?'E':'D';
+      return{code,name:g(r,inm),ref:g(r,ir),un:g(r,iu)||(BASE[code]||[])[1]||'',tipo,qtd:tipo=='E'?g(r,iq):'',hora:g(r,ih)};
+    }).filter(Boolean);
+    if(!recs.length){alert('Nenhum item encontrado no arquivo.');el.value='';return}
+    if(!confirm('Importar '+recs.length+' itens? Eles serão somados à lista atual ('+data.length+' itens). Códigos repetidos serão substituídos pelos do arquivo.')){el.value='';return}
+    recs.forEach(r=>{const i=data.findIndex(d=>d.code===r.code);if(i>=0)data[i]=r;else data.push(r)});
+    persist();renderRep();el.value='';alert(recs.length+' itens importados.');
+  };
+  rd.readAsText(file,'utf-8');
+}
+/* ===== Gráficos ===== */
+const NB=Object.keys(BASE).length;
+let gmode='i';
+function setG(m){gmode=m;renderGraf()}
+function pDate(h){const m=String(h||'').match(/(\d{2})\/(\d{2})\/(\d{4})(?:\D+(\d{1,2}):(\d{2}))?/);return m?new Date(+m[3],+m[2]-1,+m[1],+(m[4]||0),+(m[5]||0)):null}
+const dkey=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+const dlab=k=>k.slice(8)+'/'+k.slice(5,7);
+function renderGraf(){
+  if(!data.length){$('graf').innerHTML='Nenhum item contado ainda.';return}
+  const days={};
+  data.forEach(x=>{const d=pDate(x.hora);if(!d)return;const k=dkey(d),o=days[k]||(days[k]={i:0,q:0,t:[]});o.i++;if(x.tipo=='E')o.q+=parseFloat(String(x.qtd).replace(',','.'))||0;o.t.push(d.getTime())});
+  const ks=Object.keys(days).sort(),nd=ks.length||1,fmt=n=>n.toLocaleString('pt-BR',{maximumFractionDigits:1});
+  const td=days[dkey(new Date())]||{i:0,q:0,t:[]};
+  const totI=ks.reduce((a,k)=>a+days[k].i,0),totQ=ks.reduce((a,k)=>a+days[k].q,0);
+  let best=ks[0];ks.forEach(k=>{if(days[k].i>days[best].i)best=k});
+  const span=td.t.length>1?(Math.max(...td.t)-Math.min(...td.t))/36e5:0;
+  const rate=span>0.03?fmt((td.i-1)/span)+' itens/h':'-';
+  const nE=data.filter(x=>x.tipo=='E').length,prog=data.filter(x=>BASE[x.code]).length;
+  const avg=(gmode=='i'?totI:totQ)/nd,show=ks.slice(-14),vals=show.map(k=>days[k][gmode]),mx=Math.max(1,...vals);
+  const bar=(k,v)=>`<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%"><span style="font-size:11px">${fmt(v)}</span><div style="width:100%;background:var(--pri);border-radius:4px 4px 0 0;height:${v/mx*120}px"></div></div>`;
+  $('graf').innerHTML=`<div class="kp">
+<div><small>Itens contados hoje</small><b>${td.i}</b></div>
+<div><small>Total de itens</small><b>${data.length}</b></div>
+<div><small>Média de itens por dia</small><b>${fmt(totI/nd)}</b></div>
+<div><small>Dias com contagem</small><b>${ks.length}</b></div>
+<div><small>Melhor dia</small><b>${best?days[best].i:0}</b><small>${best?dlab(best):''}</small></div>
+<div><small>Ritmo hoje</small><b style="font-size:18px">${rate}</b></div>
+<div><small>Soma das quantidades hoje</small><b>${fmt(td.q)}</b></div>
+<div><small>Soma total das quantidades</small><b>${fmt(totQ)}</b></div>
+<div><small>Estoque</small><b>${nE}</b></div>
+<div><small>Aplicação direta</small><b>${data.length-nE}</b></div></div>
+<p style="margin:0 0 6px"><b>Progresso da planilha:</b> ${prog} de ${NB} (${(prog/NB*100).toFixed(1)}%)</p>
+<div style="height:10px;background:var(--bg);border-radius:6px;overflow:hidden;margin-bottom:14px"><div style="height:100%;width:${Math.min(100,prog/NB*100)}%;background:var(--ok)"></div></div>
+<div class="row noprint" style="margin:0 0 10px"><button class="opt ${gmode=='i'?'sel':''}" onclick="setG('i')">Itens por dia</button><button class="opt ${gmode=='q'?'sel':''}" onclick="setG('q')">Quantidade por dia</button></div>
+<div style="position:relative;height:150px;display:flex;align-items:flex-end;gap:4px;border-bottom:1px solid var(--bd)">${show.map((k,i)=>bar(k,vals[i])).join('')}<div style="position:absolute;left:0;right:0;bottom:${avg/mx*120}px;border-top:2px dashed var(--warn)"></div></div>
+<div style="display:flex;gap:4px">${show.map(k=>`<div style="flex:1;text-align:center;font-size:10px;color:var(--mut)">${dlab(k)}</div>`).join('')}</div>
+<p style="color:var(--mut);font-size:12px;margin:8px 0 0">Linha laranja = média por dia (${fmt(avg)}). Mostra os últimos 14 dias com contagem. A soma das quantidades junta todas as unidades (UN, KG etc.).</p>`;
 }
 
 persist();restoreDraft();
