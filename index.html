@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Almoxarifado</title>
+<link rel="icon" href="logo.png">
+<link rel="apple-touch-icon" href="logo.png">
+<meta name="theme-color" content="#0b5cab">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
@@ -23,7 +26,7 @@ main{padding:12px;max-width:720px;margin:auto}
 button.b{padding:14px;border:0;border-radius:10px;font-size:16px;font-weight:700;color:#fff;background:var(--pri);width:100%}
 button.b.ok{background:var(--ok)}button.b.warn{background:var(--warn)}button.b.gr{background:var(--mut)}
 .row{display:flex;gap:8px;margin-top:8px}.row>*{flex:1}
-input{width:100%;padding:12px;font-size:16px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx)}
+input,select{width:100%;padding:12px;font-size:16px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx)}
 label{font-size:13px;color:var(--mut);display:block;margin:10px 0 4px}
 .hide{display:none}
 .item{display:flex;justify-content:space-between;gap:8px;padding:10px 0;border-bottom:1px solid var(--bd)}
@@ -42,7 +45,7 @@ nav button{padding:12px 2px!important;font-size:14px!important}
 </style>
 </head>
 <body>
-<header><h1>📦 Almoxarifado</h1><span id="cnt">0 itens</span></header>
+<header><div style="display:flex;align-items:center;gap:10px"><span id="emo" style="font-size:24px">📦</span><img src="logo.png" alt="Amafil" style="display:none;height:36px;max-width:110px;object-fit:contain;background:#fff;border-radius:6px;padding:3px" onload="this.style.display='';document.getElementById('emo').style.display='none'"><h1>Almoxarifado</h1></div><span id="cnt">0 itens</span></header>
 <div id="top" class="noprint"><button id="m1" class="on" onclick="mod(1)">📋 Inventário</button><button id="m2" onclick="mod(2)">🚚 Requisições</button></div>
 <div id="mInv">
 <nav class="noprint"><button id="t1" class="on" onclick="tab(1)">Ler</button><button id="t2" onclick="tab(2)">Lista</button><button id="t3" onclick="tab(3)">Relatório</button><button id="t4" onclick="tab(4)">Gráficos</button></nav>
@@ -74,8 +77,15 @@ nav button{padding:12px 2px!important;font-size:14px!important}
 </section>
 <section id="v2" class="hide"><div class="card" id="list"></div></section>
 <section id="v3" class="hide">
+  <div class="card noprint"><b>Filtrar relatório</b>
+    <div class="row"><div><label>Dia: de</label><input type="date" id="fd1" onchange="renderRep()"></div><div><label>até</label><input type="date" id="fd2" onchange="renderRep()"></div></div>
+    <div class="row" style="margin-top:8px"><button class="opt" onclick="fHoje()">Só hoje</button><button class="opt" onclick="fClear()">Limpar filtros</button></div>
+    <div class="row"><div><label>Código: de</label><input id="fc1" inputmode="numeric" oninput="renderRep()"></div><div><label>até</label><input id="fc2" inputmode="numeric" oninput="renderRep()"></div></div>
+    <label>Ordenar por</label><select id="fsort" onchange="renderRep()"><option value="o">Ordem de leitura</option><option value="c">Código</option></select>
+    <label style="display:flex;gap:8px;align-items:center;color:var(--tx);font-size:15px"><input type="checkbox" id="fgrp" style="width:auto" onchange="renderRep()"> Separar por dia</label>
+  </div>
   <div class="card" id="rep"></div>
-  <div class="row noprint"><button class="b" onclick="print()">Imprimir / PDF</button><button class="b ok" onclick="csv()">Baixar CSV</button></div>
+  <div class="row noprint"><button class="b" onclick="print()">Imprimir / PDF</button><button class="b ok" id="csvb" onclick="csv()">Baixar CSV</button></div>
   <div class="row noprint"><button class="b gr" onclick="$('impf').click()">⬆️ Importar CSV</button><button class="b warn" onclick="clearAll()">🗑️ Limpar contagem</button></div>
   <input type="file" id="impf" accept=".csv,text/csv,text/plain" class="hide" onchange="imp(this)">
 </section>
@@ -218,14 +228,39 @@ function renderList(){
   $('list').innerHTML=data.length?[...data].reverse().map(d=>{const i=data.indexOf(d);return `<div class="item"><div><b>${esc(d.code)}</b><br>${esc(d.name)||'<i>sem nome</i>'}<br>${d.ref?'<small>'+esc(d.ref)+'</small><br>':''}<span class="tag ${d.tipo=='E'?'e':'d'}">${d.tipo=='E'?'Estoque: '+esc(d.qtd)+' '+esc(d.un||''):'Aplicação direta'}</span></div><button onclick="del(${i})" style="border:0;background:none;font-size:20px">🗑️</button></div>`}).join(''):'Nenhum item lido ainda.';
 }
 function del(i){if(confirm('Remover este item?')){data.splice(i,1);persist();renderList()}}
+function filtActive(){return ['fd1','fd2','fc1','fc2'].some(i=>$(i).value.trim())}
+function fHoje(){$('fd1').value=$('fd2').value=dkey(new Date());renderRep()}
+function fClear(){['fd1','fd2','fc1','fc2'].forEach(i=>$(i).value='');renderRep()}
+function rlist(){
+  const d1=$('fd1').value,d2=$('fd2').value,c1=$('fc1').value.trim(),c2=$('fc2').value.trim(),isn=c=>/^\d+$/.test(c);
+  let L=data.filter(x=>{
+    if(d1||d2){const d=pDate(x.hora);if(!d)return false;const k=dkey(d);if(d1&&k<d1)return false;if(d2&&k>d2)return false}
+    if(c1||c2){const nn=isn(x.code)&&(!c1||isn(c1))&&(!c2||isn(c2)),v=nn?Number(x.code):x.code;
+      if(c1&&v<(nn?Number(c1):c1))return false;if(c2&&v>(nn?Number(c2):c2))return false}
+    return true;
+  });
+  if($('fsort').value=='c')L=[...L].sort((a,b)=>String(a.code).localeCompare(String(b.code),undefined,{numeric:true}));
+  return L;
+}
 function renderRep(){
-  const e=data.filter(d=>d.tipo=='E'),d=data.filter(d=>d.tipo=='D');
-  $('rep').innerHTML=`<h2 style="margin-top:0">Relatório de contagem de estoque</h2><p>Data: ${new Date().toLocaleString('pt-BR')}<br>Total de itens: <b>${data.length}</b> — Estoque: <b>${e.length}</b> — Aplicação direta: <b>${d.length}</b></p><div class="wrap"><table><tr><th>#</th><th>Código</th><th>Nome</th><th>Referência</th><th>Tipo</th><th>Qtd. física</th><th>Hora</th></tr>${data.map((x,i)=>`<tr><td>${i+1}</td><td>${esc(x.code)}</td><td>${esc(x.name)}</td><td>${esc(x.ref||'')}</td><td>${x.tipo=='E'?'Estoque':'Aplicação direta'}</td><td>${x.tipo=='E'?esc(x.qtd)+' '+esc(x.un||''):'-'}</td><td>${esc(x.hora)}</td></tr>`).join('')}</table></div>`;
+  const L=rlist(),e=L.filter(d=>d.tipo=='E').length,f=k=>k.split('-').reverse().join('/'),desc=[];
+  const d1=$('fd1').value,d2=$('fd2').value,c1=$('fc1').value.trim(),c2=$('fc2').value.trim();
+  if(d1||d2)desc.push('Dia: '+(d1?f(d1):'início')+' a '+(d2?f(d2):'hoje'));
+  if(c1||c2)desc.push('Códigos: '+(c1||'início')+' a '+(c2||'fim'));
+  const th='<tr><th>#</th><th>Código</th><th>Nome</th><th>Referência</th><th>Tipo</th><th>Qtd. física</th><th>Hora</th></tr>';
+  const row=(x,i)=>`<tr><td>${i+1}</td><td>${esc(x.code)}</td><td>${esc(x.name)}</td><td>${esc(x.ref||'')}</td><td>${x.tipo=='E'?'Estoque':'Aplicação direta'}</td><td>${x.tipo=='E'?esc(x.qtd)+' '+esc(x.un||''):'-'}</td><td>${esc(x.hora)}</td></tr>`;
+  let body;
+  if($('fgrp').checked){
+    const g={};L.forEach(x=>{const d=pDate(x.hora),k=d?dkey(d):'sem-data';(g[k]=g[k]||[]).push(x)});
+    body=Object.keys(g).sort().map(k=>`<h3 style="margin:14px 0 6px">${k=='sem-data'?'Sem data':'Dia '+f(k)} — ${g[k].length} itens</h3><div class="wrap"><table>${th}${g[k].map(row).join('')}</table></div>`).join('');
+  }else body=`<div class="wrap"><table>${th}${L.map(row).join('')}</table></div>`;
+  $('rep').innerHTML=`<h2 style="margin-top:0">Relatório de contagem de estoque</h2><p>Gerado em: ${new Date().toLocaleString('pt-BR')}<br>${desc.length?'Filtro: '+desc.join(' | ')+'<br>':''}Itens no relatório: <b>${L.length}</b> de ${data.length} — Estoque: <b>${e}</b> — Aplicação direta: <b>${L.length-e}</b></p>`+(L.length?body:'<p>Nenhum item com esse filtro.</p>');
+  $('csvb').textContent=filtActive()?'Baixar CSV (filtrado)':'Baixar CSV';
 }
 function csv(){
-  const q=s=>'"'+String(s).replace(/"/g,'""')+'"';
-  const t='\ufeff'+['Código;Nome;Referência;Tipo;Quantidade;Unidade;Hora',...data.map(x=>[q(x.code),q(x.name),q(x.ref||''),x.tipo=='E'?'Estoque':'Aplicação direta',x.tipo=='E'?x.qtd:'',x.un||'',q(x.hora)].join(';'))].join('\n');
-  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'text/csv'}));a.download='contagem-estoque.csv';a.click();
+  const q=s=>'"'+String(s).replace(/"/g,'""')+'"',L=rlist();
+  const t='\ufeff'+['Código;Nome;Referência;Tipo;Quantidade;Unidade;Hora',...L.map(x=>[q(x.code),q(x.name),q(x.ref||''),x.tipo=='E'?'Estoque':'Aplicação direta',x.tipo=='E'?x.qtd:'',x.un||'',q(x.hora)].join(';'))].join('\n');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'text/csv'}));a.download='contagem-estoque'+(filtActive()?'-filtrado':'')+'.csv';a.click();
 }
 function clearAll(){if(confirm('Apagar TODA a contagem deste celular? Baixe o CSV antes: depois você pode importá-lo de volta.')){data=[];persist();renderRep()}}
 
